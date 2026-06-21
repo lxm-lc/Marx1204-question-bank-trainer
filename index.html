@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>马克思主义基本原理题库练习</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">MARX1204</p>
+        <h1>题库练习</h1>
+        <p class="hero-copy">
+          自动解析 <code>base.txt</code>，按顺序做题，保存进度，并维护“不确定题库”和“做错了题库”。
+        </p>
+      </div>
+      <div class="hero-actions">
+        <button id="rebuild-bank-button" class="ghost-button" type="button">重建题库</button>
+        <button id="restart-main-button" class="ghost-button" type="button">从头重做</button>
+        <button id="reset-progress-button" class="danger-button" type="button">清空所有进度</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-scroll">
+        <section class="panel">
+          <h2>模式</h2>
+          <div class="mode-buttons">
+            <button class="mode-button is-active" type="button" data-mode="main">主题库</button>
+            <button class="mode-button" type="button" data-mode="wrong">做错了</button>
+            <button class="mode-button" type="button" data-mode="uncertain">不确定</button>
+            <button class="mode-button" type="button" data-mode="review">复盘</button>
+            <button class="mode-button" type="button" data-mode="stats">统计</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>进度概览</h2>
+          <div id="summary-stats" class="summary-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>去重说明</h2>
+          <p id="duplicate-summary" class="hint-text"></p>
+          <div id="duplicate-list" class="filter-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>题目筛选</h2>
+          <label class="search-box">
+            <span>关键词搜索</span>
+            <input id="search-input" type="search" placeholder="搜索题干、选项、原题号">
+          </label>
+          <div id="filter-toolbar" class="filter-toolbar">
+            <button type="button" class="filter-chip is-active" data-filter="all">全部</button>
+            <button type="button" class="filter-chip" data-filter="undone">未做</button>
+            <button type="button" class="filter-chip" data-filter="done">已做</button>
+            <button type="button" class="filter-chip" data-filter="wrong-active">当前错题</button>
+            <button type="button" class="filter-chip" data-filter="uncertain-active">当前不确定</button>
+            <button type="button" class="filter-chip" data-filter="ever-wrong">曾经做错</button>
+            <button type="button" class="filter-chip" data-filter="ever-uncertain">曾经不会</button>
+          </div>
+          <p id="filter-summary" class="hint-text"></p>
+          <div id="filter-list" class="filter-list"></div>
+          <h2>复盘定位</h2>
+          <form id="review-form" class="review-form">
+            <label for="review-question-id">按连续编号查看</label>
+            <div class="review-row">
+              <input id="review-question-id" name="reviewQuestionId" type="number" min="1" step="1" placeholder="例如 12">
+              <button type="submit" class="ghost-button">跳转</button>
+            </div>
+          </form>
+          <div id="review-quick-list" class="quick-list"></div>
+        </section>
+
+        <section class="panel">
+          <h2>题库导入</h2>
+          <p class="panel-copy">
+            页面会优先尝试读取同目录下的 <code>base.txt</code>。如果浏览器直接打开本页导致读取失败，可以手动导入。
+          </p>
+          <label class="file-picker">
+            <span>选择题库文件</span>
+            <input id="import-file-input" type="file" accept=".txt,text/plain">
+          </label>
+          <p id="source-status" class="hint-text"></p>
+        </section>
+
+        <section class="panel">
+          <h2>进度备份</h2>
+          <p class="panel-copy">
+            可以把当前题库进度导出成 JSON，之后再导回本页继续使用。
+          </p>
+          <div class="backup-actions">
+            <button id="export-progress-button" class="ghost-button" type="button">导出进度</button>
+            <label class="file-picker compact">
+              <span>导入进度</span>
+              <input id="import-progress-input" type="file" accept=".json,application/json">
+            </label>
+          </div>
+          <p id="backup-status" class="hint-text"></p>
+        </section>
+        </div>
+      </aside>
+
+      <section class="main-column">
+        <section id="app-status" class="banner banner-info">
+          正在准备题库……
+        </section>
+
+        <section id="empty-state" class="panel empty-state is-hidden">
+          <h2>还没有可显示的题目</h2>
+          <p id="empty-state-text" class="panel-copy">
+            如果是第一次打开，请等待自动导入；如果自动导入失败，请手动选择 <code>base.txt</code>。
+          </p>
+        </section>
+
+        <section id="question-panel" class="panel question-panel is-hidden">
+          <div class="question-meta">
+            <span id="mode-title" class="mode-pill">主题库</span>
+            <span id="question-counter" class="counter-text"></span>
+          </div>
+
+          <div class="question-headline">
+            <h2 id="question-title"></h2>
+            <p id="question-source-meta" class="question-source"></p>
+          </div>
+
+          <form id="question-form">
+            <div id="question-options" class="options-list"></div>
+
+            <label class="uncertain-toggle">
+              <input id="mark-uncertain-checkbox" type="checkbox">
+              <span>标注为不确定的题目</span>
+            </label>
+
+            <div class="submit-row">
+              <button id="submit-answer-button" class="primary-button" type="submit">提交</button>
+              <button id="next-question-button" class="ghost-button is-hidden" type="button">下一题</button>
+              <button id="copy-question-button" class="ghost-button" type="button">复制题目</button>
+              <button id="show-answer-button" class="ghost-button is-hidden" type="button">查看答案</button>
+            </div>
+          </form>
+
+          <section id="result-panel" class="result-panel is-hidden"></section>
+          <section id="note-editor-panel" class="note-editor is-hidden">
+            <div class="note-editor-head">
+              <strong>题目备注</strong>
+              <span id="note-editor-status" class="note-editor-status"></span>
+            </div>
+            <label class="note-editor-field" for="question-note-input">
+              <span>记录这一题的理解、易错点或补充说明</span>
+              <textarea id="question-note-input" rows="4" placeholder="例如：这题的关键在于区分……"></textarea>
+            </label>
+            <div class="note-editor-actions">
+              <button id="save-note-button" class="ghost-button" type="button">提交备注</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="review-panel" class="panel review-panel is-hidden">
+          <div class="review-header">
+            <div>
+              <h2 id="review-title">复盘</h2>
+              <p id="review-subtitle" class="panel-copy"></p>
+            </div>
+            <div class="tag-buttons">
+              <button id="remove-ever-wrong-button" class="ghost-button" type="button">删除“曾经做错”标签</button>
+              <button id="remove-ever-uncertain-button" class="ghost-button" type="button">删除“曾经不会”标签</button>
+            </div>
+          </div>
+
+          <div id="review-tags" class="tag-list"></div>
+          <div id="review-answer-block" class="review-answer-block"></div>
+          <div id="review-attempts" class="attempt-list"></div>
+        </section>
+
+        <section id="stats-panel" class="panel review-panel is-hidden">
+          <div class="review-header">
+            <div>
+              <h2>重练统计</h2>
+              <p id="stats-subtitle" class="panel-copy"></p>
+            </div>
+            <div class="tag-buttons">
+              <button id="export-wrong-md-button" class="ghost-button" type="button">导出错题 Markdown</button>
+              <button id="export-wrong-pdf-button" class="ghost-button" type="button">导出错题 PDF</button>
+              <button id="export-uncertain-md-button" class="ghost-button" type="button">导出不确定题 Markdown</button>
+              <button id="export-uncertain-pdf-button" class="ghost-button" type="button">导出不确定题 PDF</button>
+            </div>
+          </div>
+          <div id="stats-cards" class="summary-list"></div>
+          <div id="stats-details" class="attempt-list"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <div id="confirm-modal" class="modal-backdrop is-hidden" aria-hidden="true">
+    <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <h2 id="confirm-modal-title">请确认</h2>
+      <p id="confirm-modal-message" class="panel-copy"></p>
+      <div class="modal-actions">
+        <button id="confirm-modal-cancel" class="ghost-button" type="button">取消</button>
+        <button id="confirm-modal-confirm" class="danger-button" type="button">确认</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="print-export-root" class="print-export-root is-hidden" aria-hidden="true"></div>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
