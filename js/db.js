@@ -246,6 +246,8 @@ export function createDefaultState(questionId) {
     lastMode: null,
     lastSubmittedAt: null,
     note: "",
+    wrongBookOrderAt: null,
+    uncertainBookOrderAt: null,
     inWrongBook: false,
     inUncertainBook: false,
     everWrong: false,

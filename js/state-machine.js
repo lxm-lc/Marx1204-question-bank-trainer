@@ -87,6 +87,19 @@ export function evaluateSubmission({
     }
   }
 
+  if (nextState.inWrongBook) {
+    nextState.wrongBookOrderAt = submittedAt;
+    nextState.uncertainBookOrderAt = null;
+  } else if (baseState.inWrongBook) {
+    nextState.wrongBookOrderAt = null;
+  }
+
+  if (nextState.inUncertainBook && !nextState.inWrongBook) {
+    nextState.uncertainBookOrderAt = submittedAt;
+  } else if (baseState.inUncertainBook || nextState.inWrongBook) {
+    nextState.uncertainBookOrderAt = null;
+  }
+
   return {
     nextState,
     attempt: buildAttemptRecord({
@@ -108,4 +121,30 @@ export function evaluateSubmission({
       removedFromUncertainBook,
     },
   };
+}
+
+export function applyManualTagRemoval(previousState, kind) {
+  const nextState = {
+    ...previousState,
+    lastSelected: [...(previousState?.lastSelected ?? [])],
+  };
+
+  if (kind === "everWrong") {
+    nextState.everWrong = false;
+    nextState.inWrongBook = false;
+    nextState.wrongBookOrderAt = null;
+  }
+
+  if (kind === "everUncertain") {
+    nextState.everUncertain = false;
+    nextState.inUncertainBook = false;
+    nextState.uncertainBookOrderAt = null;
+  }
+
+  if (nextState.inWrongBook) {
+    nextState.inUncertainBook = false;
+    nextState.uncertainBookOrderAt = null;
+  }
+
+  return nextState;
 }

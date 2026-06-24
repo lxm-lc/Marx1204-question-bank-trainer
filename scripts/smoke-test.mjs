@@ -2,7 +2,7 @@ import fs from "node:fs";
 import assert from "node:assert/strict";
 import { buildDeduplicatedQuestions, parseQuestionBank } from "../js/parser.js";
 import { createDefaultState } from "../js/db.js";
-import { evaluateSubmission } from "../js/state-machine.js";
+import { applyManualTagRemoval, evaluateSubmission } from "../js/state-machine.js";
 
 function runParserAssertions() {
   const text = fs.readFileSync(new URL("../base.txt", import.meta.url), "utf8");
@@ -52,6 +52,8 @@ function runStateAssertions() {
   assert.equal(wrongWithUncertain.nextState.everWrong, true);
   assert.equal(wrongWithUncertain.nextState.everUncertain, true);
   assert.equal(wrongWithUncertain.nextState.wrongCount, 1);
+  assert.equal(wrongWithUncertain.nextState.wrongBookOrderAt, "2026-06-01T12:00:00.000Z");
+  assert.equal(wrongWithUncertain.nextState.uncertainBookOrderAt, null);
   assert.equal(wrongWithUncertain.result.addedToWrongBook, true);
   assert.equal(wrongWithUncertain.result.removedFromUncertainBook, true);
 
@@ -67,7 +69,13 @@ function runStateAssertions() {
   assert.equal(fixWrong.result.isCorrect, true);
   assert.equal(fixWrong.nextState.inWrongBook, false);
   assert.equal(fixWrong.nextState.everWrong, true);
+  assert.equal(fixWrong.nextState.wrongBookOrderAt, null);
   assert.equal(fixWrong.result.removedFromWrongBook, true);
+
+  const clearedWrongTag = applyManualTagRemoval(wrongWithUncertain.nextState, "everWrong");
+  assert.equal(clearedWrongTag.everWrong, false);
+  assert.equal(clearedWrongTag.inWrongBook, false);
+  assert.equal(clearedWrongTag.wrongBookOrderAt, null);
 
   const uncertainOnly = evaluateSubmission({
     previousState: createDefaultState(multiQuestion.id),
@@ -81,6 +89,7 @@ function runStateAssertions() {
   assert.equal(uncertainOnly.result.isCorrect, true);
   assert.equal(uncertainOnly.nextState.inUncertainBook, true);
   assert.equal(uncertainOnly.nextState.everUncertain, true);
+  assert.equal(uncertainOnly.nextState.uncertainBookOrderAt, "2026-06-01T13:00:00.000Z");
   assert.equal(uncertainOnly.result.addedToUncertainBook, true);
 
   const fixUncertain = evaluateSubmission({
@@ -95,7 +104,13 @@ function runStateAssertions() {
   assert.equal(fixUncertain.result.isCorrect, true);
   assert.equal(fixUncertain.nextState.inUncertainBook, false);
   assert.equal(fixUncertain.nextState.everUncertain, true);
+  assert.equal(fixUncertain.nextState.uncertainBookOrderAt, null);
   assert.equal(fixUncertain.result.removedFromUncertainBook, true);
+
+  const clearedUncertainTag = applyManualTagRemoval(uncertainOnly.nextState, "everUncertain");
+  assert.equal(clearedUncertainTag.everUncertain, false);
+  assert.equal(clearedUncertainTag.inUncertainBook, false);
+  assert.equal(clearedUncertainTag.uncertainBookOrderAt, null);
 
   const snapshot = {
     kind: "marx-question-bank-progress",

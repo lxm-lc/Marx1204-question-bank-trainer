@@ -17,7 +17,7 @@ import {
   setMeta,
 } from "./db.js";
 import { buildDeduplicatedQuestions, hashText, parseQuestionBank } from "./parser.js";
-import { evaluateSubmission } from "./state-machine.js";
+import { applyManualTagRemoval, evaluateSubmission } from "./state-machine.js";
 
 const QUESTION_BANK_STRUCTURE_VERSION = 3;
 const RAW_QUESTIONS_META_KEY = "rawQuestions";
@@ -322,6 +322,8 @@ function buildMergedDuplicateState({ stateEntries, attemptEntries, questionId })
   let lastCorrect = representativeState?.lastCorrect ?? null;
   let lastMode = representativeState?.lastMode ?? null;
   let lastSubmittedAt = representativeState?.lastSubmittedAt ?? null;
+  let wrongBookOrderAt = representativeState?.wrongBookOrderAt ?? null;
+  let uncertainBookOrderAt = representativeState?.uncertainBookOrderAt ?? null;
   let inWrongBook = Boolean(representativeState?.inWrongBook);
   let inUncertainBook = Boolean(representativeState?.inUncertainBook) && !inWrongBook;
   let attemptCount = Number(representativeState?.attemptCount ?? 0);
@@ -336,13 +338,18 @@ function buildMergedDuplicateState({ stateEntries, attemptEntries, questionId })
     wrongCount = representativeAttempt.isCorrect ? 0 : 1;
     inWrongBook = !representativeAttempt.isCorrect;
     inUncertainBook = representativeAttempt.isCorrect && Boolean(representativeAttempt.markedUncertain);
+    wrongBookOrderAt = inWrongBook ? representativeAttempt.submittedAt ?? null : null;
+    uncertainBookOrderAt = inUncertainBook ? representativeAttempt.submittedAt ?? null : null;
   } else if (lastSubmittedAt || mainDone) {
     attemptCount = attemptCount > 0 ? 1 : Number(Boolean(lastSubmittedAt || mainDone));
     wrongCount = lastCorrect === false || inWrongBook ? 1 : 0;
+    wrongBookOrderAt = inWrongBook ? representativeState?.wrongBookOrderAt ?? lastSubmittedAt : null;
+    uncertainBookOrderAt = inUncertainBook ? representativeState?.uncertainBookOrderAt ?? lastSubmittedAt : null;
   }
 
   if (inWrongBook) {
     inUncertainBook = false;
+    uncertainBookOrderAt = null;
   }
 
   return {
@@ -354,6 +361,8 @@ function buildMergedDuplicateState({ stateEntries, attemptEntries, questionId })
     lastMode,
     lastSubmittedAt,
     note: normalizeNote(representativeState?.note) || fallbackNote,
+    wrongBookOrderAt,
+    uncertainBookOrderAt,
     inWrongBook,
     inUncertainBook,
     everWrong,
@@ -899,16 +908,40 @@ function getQuestionIdsForMode(mode) {
   if (mode === "wrong") {
     return appState.questions
       .filter((question) => getStateForQuestion(question.id).inWrongBook)
+      .sort((left, right) => {
+        const leftState = getStateForQuestion(left.id);
+        const rightState = getStateForQuestion(right.id);
+        const leftOrder = leftState.wrongBookOrderAt ?? leftState.lastSubmittedAt ?? "";
+        const rightOrder = rightState.wrongBookOrderAt ?? rightState.lastSubmittedAt ?? "";
+        const timeCompare = leftOrder.localeCompare(rightOrder);
+        if (timeCompare !== 0) return timeCompare;
+        return left.id - right.id;
+      })
       .map((question) => question.id);
   }
 
   if (mode === "uncertain") {
     return appState.questions
       .filter((question) => getStateForQuestion(question.id).inUncertainBook)
+      .sort((left, right) => {
+        const leftState = getStateForQuestion(left.id);
+        const rightState = getStateForQuestion(right.id);
+        const leftOrder = leftState.uncertainBookOrderAt ?? leftState.lastSubmittedAt ?? "";
+        const rightOrder = rightState.uncertainBookOrderAt ?? rightState.lastSubmittedAt ?? "";
+        const timeCompare = leftOrder.localeCompare(rightOrder);
+        if (timeCompare !== 0) return timeCompare;
+        return left.id - right.id;
+      })
       .map((question) => question.id);
   }
 
   return appState.questions.map((question) => question.id);
+}
+
+function getNextQuestionIdFromPreviousOrder(questionId, ids) {
+  const index = ids.indexOf(questionId);
+  if (index === -1) return ids[0] ?? null;
+  return ids[index + 1] ?? ids[0] ?? null;
 }
 
 function getQuestionByIdLocal(questionId) {
@@ -1316,6 +1349,10 @@ async function handleSubmit(event) {
   }
 
   const question = appState.currentQuestion;
+  const previousModeIds =
+    appState.currentMode === "wrong" || appState.currentMode === "uncertain"
+      ? getQuestionIdsForMode(appState.currentMode)
+      : null;
   const previousState = getStateForQuestion(question.id);
   const markedUncertain = elements.markUncertainCheckbox.checked;
   const submittedAt = new Date().toISOString();
@@ -1343,7 +1380,7 @@ async function handleSubmit(event) {
   if (appState.currentMode === "main") {
     appState.currentQuestionId = getNextQuestionIdAfter(question.id, "main");
   } else if (appState.currentMode === "wrong" || appState.currentMode === "uncertain") {
-    const nextId = getNextQuestionIdAfter(question.id, appState.currentMode);
+    const nextId = getNextQuestionIdFromPreviousOrder(question.id, previousModeIds ?? []);
     const currentSet = getQuestionIdsForMode(appState.currentMode);
     appState.currentQuestionId = currentSet.includes(nextId) ? nextId : currentSet[0] ?? null;
   }
@@ -1361,12 +1398,19 @@ async function handleToggleUncertainAfterSubmit() {
   const checked = elements.markUncertainCheckbox.checked;
   const nextState = { ...previousState };
   const canBeUncertain = !nextState.inWrongBook;
+  const orderTouchedAt = new Date().toISOString();
 
   if (checked) {
     nextState.inUncertainBook = canBeUncertain;
     nextState.everUncertain = true;
+    nextState.uncertainBookOrderAt = canBeUncertain ? orderTouchedAt : null;
   } else {
     nextState.inUncertainBook = false;
+    nextState.uncertainBookOrderAt = null;
+  }
+
+  if (nextState.inWrongBook) {
+    nextState.uncertainBookOrderAt = null;
   }
 
   await putState(appState.database, nextState);
@@ -1585,9 +1629,7 @@ async function handleRemoveTag(kind) {
   const questionId = appState.reviewQuestionId;
   if (!questionId) return;
 
-  const state = { ...getStateForQuestion(questionId) };
-  if (kind === "everWrong") state.everWrong = false;
-  if (kind === "everUncertain") state.everUncertain = false;
+  const state = applyManualTagRemoval(getStateForQuestion(questionId), kind);
 
   await putState(appState.database, state);
   saveStateLocally(state);
